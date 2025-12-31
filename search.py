@@ -176,9 +176,7 @@ class TFIDFRanker:
         Rank candidate documents for a query.
         """
 
-        # Tokenize query inside ranker (single source of truth)
         query_terms = self.index.tokenizer.tokenize(query_text)
-
         scores = {}
 
         for doc_id in candidate_docs:
@@ -213,9 +211,7 @@ class QueryEngine:
         self.ranker = ranker
 
     def search(self, query_text, top_k=5):
-        """
-        Execute a ranked search query.
-        """
+        """Search for documents"""
 
         # Tokenize query
         query_terms = self.index.tokenizer.tokenize(query_text)
@@ -223,18 +219,59 @@ class QueryEngine:
         if not query_terms:
             return []
 
-        # Collect candidate documents (OR semantics)
+        # Find candidate documents
         candidate_docs = set()
-
         for term in query_terms:
-            docs = self.index.search(term)
-            candidate_docs.update(docs.keys())
+            docs_with_term = self.index.search(term)
+            candidate_docs.update(docs_with_term.keys())
 
         # Rank candidates
         ranked = self.ranker.rank(query_text, list(candidate_docs))
 
-        # Return top-k results
+        # Return top-k
         return ranked[:top_k]
+
+
+# ============================================================
+# SEARCH RESULT + DOCUMENT STORE
+# ============================================================
+
+class SearchResult:
+    """Formatted search result"""
+
+    def __init__(self, doc_id, title, content, score, snippet_len=100):
+        self.doc_id = doc_id
+        self.title = title
+        self.content = content
+        self.score = score
+        self.snippet = self._create_snippet(snippet_len)
+
+    def _create_snippet(self, length):
+        """Create snippet of content"""
+        if len(self.content) <= length:
+            return self.content
+        return self.content[:length] + "..."
+
+    def __repr__(self):
+        return f"[{self.score:.2f}] {self.title}\n    {self.snippet}"
+
+
+class DocumentStore:
+    """Store and retrieve document metadata"""
+
+    def __init__(self):
+        self.docs = {}
+
+    def add(self, doc_id, title, content):
+        """Add document"""
+        self.docs[doc_id] = {
+            'title': title,
+            'content': content
+        }
+
+    def get(self, doc_id):
+        """Get document by ID"""
+        return self.docs.get(doc_id)
 
 
 # ============================================================
@@ -349,7 +386,6 @@ def test_query_engine():
     engine = QueryEngine(index, ranker)
 
     results = engine.search("programming")
-
     doc_ids = [doc_id for doc_id, _ in results]
 
     assert 1 in doc_ids
@@ -358,13 +394,39 @@ def test_query_engine():
     print("✅ Query engine works correctly")
 
 
+def test_document_retrieval():
+    """Test 7: Document Retrieval"""
+    print("\n" + "=" * 60)
+    print("TEST 7: Document Retrieval")
+    print("=" * 60)
+
+    index = InvertedIndex()
+    store = DocumentStore()
+
+    index.add_document(1, "Learn python programming basics")
+    store.add(1, "Python Guide", "Learn python programming basics")
+
+    index.add_document(2, "Java programming fundamentals")
+    store.add(2, "Java Basics", "Java programming fundamentals")
+
+    ranker = TFIDFRanker(index)
+    results = ranker.rank("python", [1, 2])
+
+    assert results[0][0] == 1
+
+    doc = store.get(1)
+    assert doc['title'] == "Python Guide"
+
+    print("✅ Document retrieval works")
+
+
 # ============================================================
 # MAIN
 # ============================================================
 
 if __name__ == '__main__':
     print("\n" + "=" * 70)
-    print("DAY 1 COMMIT 3: QUERY ENGINE")
+    print("DAY 1 COMMIT 4: DOCUMENT RETRIEVAL")
     print("=" * 70)
 
     test_tokenizer()
@@ -373,7 +435,8 @@ if __name__ == '__main__':
     test_idf_calculation()
     test_tfidf_ranking()
     test_query_engine()
+    test_document_retrieval()
 
     print("\n" + "=" * 70)
-    print("ALL 6 TESTS PASSED! ✅")
+    print("ALL 7 TESTS PASSED! ✅")
     print("=" * 70)
