@@ -1,6 +1,6 @@
 """
-Search Engine - Day 1 Commit 2
-Tokenizer, Inverted Index, and TF-IDF Ranker
+Search Engine - Day 1 Commit 3
+Tokenizer, Inverted Index, TF-IDF Ranker, and Query Engine
 """
 
 import re
@@ -15,10 +15,11 @@ from collections import defaultdict
 class Tokenizer:
     """
     Tokenize text into normalized terms.
-    Handles:
-    - lowercasing
+
+    Responsibilities:
+    - lowercase normalization
     - punctuation removal
-    - stopword removal
+    - stopword filtering
     """
 
     STOPWORDS = {
@@ -31,21 +32,25 @@ class Tokenizer:
 
     def tokenize(self, text):
         """
-        Convert raw text into a list of normalized terms.
+        Convert raw text into a list of normalized tokens.
         """
+
         # Step 1: Normalize case
         text = text.lower()
 
-        # Step 2: Extract words
+        # Step 2: Extract words using regex
         words = re.findall(r'\b\w+\b', text)
 
         # Step 3: Filter stopwords and short tokens
         terms = []
+
         for word in words:
             if word in self.STOPWORDS:
                 continue
+
             if len(word) <= 1:
                 continue
+
             terms.append(word)
 
         return terms
@@ -58,32 +63,34 @@ class Tokenizer:
 class InvertedIndex:
     """
     Build and query an inverted index.
-    Stores:
-    - document contents
-    - term frequencies per document
+
+    Data structures:
+    - index: term -> {doc_id -> term frequency}
+    - documents: doc_id -> raw document content
     """
 
     def __init__(self):
         # term -> {doc_id -> frequency}
         self.index = defaultdict(lambda: defaultdict(int))
 
-        # doc_id -> raw content
+        # doc_id -> content
         self.documents = {}
 
-        # tokenizer instance
+        # shared tokenizer
         self.tokenizer = Tokenizer()
 
     def add_document(self, doc_id, content):
         """
         Add a document to the index.
         """
-        # Store document
+
+        # Store document content
         self.documents[doc_id] = content
 
         # Tokenize content
         terms = self.tokenizer.tokenize(content)
 
-        # Update term frequencies
+        # Update inverted index
         for term in terms:
             self.index[term][doc_id] += 1
 
@@ -91,17 +98,20 @@ class InvertedIndex:
         """
         Return documents containing the query term.
         """
+
         tokens = self.tokenizer.tokenize(query)
 
         if not tokens:
             return {}
 
+        # Single-term search (Day 1 scope)
         term = tokens[0]
+
         return dict(self.index.get(term, {}))
 
     def get_document(self, doc_id):
         """
-        Retrieve document content by ID.
+        Retrieve raw document by ID.
         """
         return self.documents.get(doc_id)
 
@@ -136,6 +146,7 @@ class TFIDFRanker:
         """
         Compute inverse document frequency for a term.
         """
+
         if term in self.idf_cache:
             return self.idf_cache[term]
 
@@ -154,15 +165,20 @@ class TFIDFRanker:
         """
         Compute TF-IDF score for a term in a document.
         """
+
         tf = self.index.term_frequency(term, doc_id)
         idf = self.compute_idf(term)
+
         return tf * idf
 
-    def rank(self, query, candidate_docs):
+    def rank(self, query_text, candidate_docs):
         """
         Rank candidate documents for a query.
         """
-        query_terms = self.index.tokenizer.tokenize(query)
+
+        # Tokenize query inside ranker (single source of truth)
+        query_terms = self.index.tokenizer.tokenize(query_text)
+
         scores = {}
 
         for doc_id in candidate_docs:
@@ -181,6 +197,44 @@ class TFIDFRanker:
         )
 
         return ranked_results
+
+
+# ============================================================
+# QUERY ENGINE
+# ============================================================
+
+class QueryEngine:
+    """
+    Execute search queries over the index.
+    """
+
+    def __init__(self, inverted_index, ranker):
+        self.index = inverted_index
+        self.ranker = ranker
+
+    def search(self, query_text, top_k=5):
+        """
+        Execute a ranked search query.
+        """
+
+        # Tokenize query
+        query_terms = self.index.tokenizer.tokenize(query_text)
+
+        if not query_terms:
+            return []
+
+        # Collect candidate documents (OR semantics)
+        candidate_docs = set()
+
+        for term in query_terms:
+            docs = self.index.search(term)
+            candidate_docs.update(docs.keys())
+
+        # Rank candidates
+        ranked = self.ranker.rank(query_text, list(candidate_docs))
+
+        # Return top-k results
+        return ranked[:top_k]
 
 
 # ============================================================
@@ -280,13 +334,37 @@ def test_tfidf_ranking():
     print("✅ TF-IDF ranking correct")
 
 
+def test_query_engine():
+    print("\n" + "=" * 60)
+    print("TEST 6: Query Engine")
+    print("=" * 60)
+
+    index = InvertedIndex()
+
+    index.add_document(1, "python programming language")
+    index.add_document(2, "java programming basics")
+    index.add_document(3, "web development tutorials")
+
+    ranker = TFIDFRanker(index)
+    engine = QueryEngine(index, ranker)
+
+    results = engine.search("programming")
+
+    doc_ids = [doc_id for doc_id, _ in results]
+
+    assert 1 in doc_ids
+    assert 2 in doc_ids
+
+    print("✅ Query engine works correctly")
+
+
 # ============================================================
 # MAIN
 # ============================================================
 
 if __name__ == '__main__':
     print("\n" + "=" * 70)
-    print("DAY 1 COMMIT 2: TF-IDF RANKER")
+    print("DAY 1 COMMIT 3: QUERY ENGINE")
     print("=" * 70)
 
     test_tokenizer()
@@ -294,7 +372,8 @@ if __name__ == '__main__':
     test_term_frequency()
     test_idf_calculation()
     test_tfidf_ranking()
+    test_query_engine()
 
     print("\n" + "=" * 70)
-    print("ALL 5 TESTS PASSED! ✅")
+    print("ALL 6 TESTS PASSED! ✅")
     print("=" * 70)
