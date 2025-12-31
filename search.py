@@ -450,6 +450,74 @@ def test_large_index():
     print(f"Found {len(results)} results")
     print("✅ Performance acceptable")
 
+import threading
+
+class ThreadedIndexer:
+    """Index documents using multiple threads"""
+    
+    def __init__(self, num_threads=4):
+        self.num_threads = num_threads
+        self.lock = threading.Lock()
+    
+    def build_index(self, documents):
+        """Build index from documents in parallel"""
+        index = InvertedIndex()
+        
+        def worker(docs_chunk):
+            local_index = InvertedIndex()
+            for doc_id, content in docs_chunk:
+                local_index.add_document(doc_id, content)
+            
+            # Merge into main index
+            with self.lock:
+                for term, postings in local_index.index.items():
+                    for doc_id, freq in postings.items():
+                        index.index[term][doc_id] += freq
+                index.documents.update(local_index.documents)
+        
+        # Split documents into chunks
+        chunk_size = len(documents) // self.num_threads
+        threads = []
+        
+        for i in range(self.num_threads):
+            start = i * chunk_size
+            end = start + chunk_size if i < self.num_threads - 1 else len(documents)
+            chunk = documents[start:end]
+            
+            t = threading.Thread(target=worker, args=(chunk,))
+            threads.append(t)
+            t.start()
+        
+        for t in threads:
+            t.join()
+        
+        return index
+
+
+def test_threaded_indexing():
+    """Test 9: Threaded Indexing"""
+    print("\n" + "="*60)
+    print("TEST 9: Threaded Indexing")
+    print("="*60)
+    
+    import time
+    
+    # Create 1000 documents
+    documents = [(i, f"document {i} with python") for i in range(1000)]
+    
+    indexer = ThreadedIndexer(num_threads=4)
+    
+    start = time.time()
+    index = indexer.build_index(documents)
+    threaded_time = time.time() - start
+    
+    # Verify index
+    assert len(index.documents) == 1000
+    results = index.search("python")
+    assert len(results) == 1000
+    
+    print(f"Indexed 1000 documents (4 threads): {threaded_time:.3f}s")
+    print("✅ Threaded indexing works")
 
 # ============================================================
 # MAIN
@@ -457,7 +525,7 @@ def test_large_index():
 
 if __name__ == '__main__':
     print("\n" + "="*70)
-    print("DAY 1 COMMIT 5: Performance Tests")
+    print("DAY 1: INDEXING + RANKING (6 commits)")
     print("="*70)
     
     test_tokenizer()
@@ -468,8 +536,11 @@ if __name__ == '__main__':
     test_query_engine()
     test_document_retrieval()
     test_large_index()
+    test_threaded_indexing()
     
     print("\n" + "="*70)
-    print("ALL 8 TESTS PASSED! ✅")
+    print("ALL 9 TESTS PASSED! ✅")
     print("="*70)
+    print("\nReady for Day 2!")
+
 
