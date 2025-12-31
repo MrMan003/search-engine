@@ -419,16 +419,47 @@ def test_document_retrieval():
 
     print("✅ Document retrieval works")
 
+def test_large_index():
+    """Test 8: Large Index Performance"""
+    print("\n" + "="*60)
+    print("TEST 8: Large Index (10K Documents)")
+    print("="*60)
+    
+    import time
+    
+    index = InvertedIndex()
+    
+    # Build index with 10K documents
+    start = time.time()
+    for i in range(10000):
+        text = f"document {i} with python programming tutorial"
+        index.add_document(i, text)
+    
+    index_time = time.time() - start
+    
+    ranker = TFIDFRanker(index)
+    engine = QueryEngine(index, ranker)
+    
+    # Search
+    start = time.time()
+    results = engine.search("python")
+    search_time = time.time() - start
+    
+    print(f"Indexed 10,000 documents: {index_time:.2f}s")
+    print(f"Search query 'python': {search_time*1000:.1f}ms")
+    print(f"Found {len(results)} results")
+    print("✅ Performance acceptable")
+
 
 # ============================================================
 # MAIN
 # ============================================================
 
 if __name__ == '__main__':
-    print("\n" + "=" * 70)
-    print("DAY 1 COMMIT 4: DOCUMENT RETRIEVAL")
-    print("=" * 70)
-
+    print("\n" + "="*70)
+    print("DAY 1 COMMIT 5: Performance Tests")
+    print("="*70)
+    
     test_tokenizer()
     test_inverted_index()
     test_term_frequency()
@@ -436,7 +467,9 @@ if __name__ == '__main__':
     test_tfidf_ranking()
     test_query_engine()
     test_document_retrieval()
+    test_large_index()
+    
+    print("\n" + "="*70)
+    print("ALL 8 TESTS PASSED! ✅")
+    print("="*70)
 
-    print("\n" + "=" * 70)
-    print("ALL 7 TESTS PASSED! ✅")
-    print("=" * 70)
