@@ -160,7 +160,8 @@ class TFIDFRanker:
         if total_docs == 0 or doc_frequency == 0:
             idf = 0.0
         else:
-            idf = math.log10(total_docs / doc_frequency)
+            # FIX: Add 1 to calculation to avoid log(1) = 0
+            idf = math.log10(total_docs / doc_frequency) + 1.0
 
         self.idf_cache[term] = idf
         return idf
@@ -606,6 +607,39 @@ def test_latency_benchmark():
     assert speedup >= 1.0 
     print("✅ Caching benchmark complete")
 
+def test_throughput():
+    """Test 12: Throughput Benchmark"""
+    print("\n" + "="*60)
+    print("TEST 12: Throughput (1000 Queries)")
+    print("="*60)
+    
+    import time
+    import random
+    from cache import SearchCache
+    
+    # Build index
+    index = InvertedIndex()
+    for i in range(100000):
+        index.add_document(i, f"document {i} with python machine learning")
+    
+    ranker = TFIDFRanker(index)
+    
+    cache = SearchCache(use_redis=False)
+    engine = CachedQueryEngine(index, ranker, cache)
+    
+    queries = ["python", "machine", "learning", "programming", "tutorial"]
+    
+    start = time.time()
+    for _ in range(1000):
+        q = random.choice(queries)
+        engine.search(q)
+    
+    elapsed = time.time() - start
+    throughput = 1000 / elapsed
+    
+    print(f"1000 queries in {elapsed:.2f}s")
+    print(f"Throughput: {throughput:.0f} queries/sec")
+    print("✅ Throughput test passed")
 
 # ============================================================
 # MAIN EXECUTION
@@ -613,8 +647,7 @@ def test_latency_benchmark():
 
 if __name__ == '__main__':
     print("\n" + "="*70)
-    print("DAY 2 COMPLETE: FULL SEARCH ENGINE SYSTEM")
-    print("Features: Indexing, Ranking, Querying, Caching, Threading, Persistence")
+    print("DAY 2 COMMIT 9: Throughput Tests")
     print("="*70)
     
     test_tokenizer()
@@ -628,7 +661,8 @@ if __name__ == '__main__':
     test_threaded_indexing()
     test_caching()
     test_latency_benchmark()
+    test_throughput()
     
     print("\n" + "="*70)
-    print("ALL 11 TESTS PASSED! ✅")
+    print("ALL 12 TESTS PASSED! ✅")
     print("="*70)
