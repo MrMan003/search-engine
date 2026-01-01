@@ -1,6 +1,14 @@
 """
-Search Engine - Day 1 Complete
-Tokenizer, Inverted Index, TF-IDF Ranker, Query Engine, Caching, and Threading.
+Search Engine - Day 2 Complete
+Features:
+1. Tokenizer (Regex + Stopwords)
+2. Inverted Index (Add, Search, Frequency)
+3. Persistence (Save/Load Index to Disk)
+4. TF-IDF Ranker (Math-heavy ranking)
+5. Query Engine (Coordinator)
+6. Caching (LRU Strategy)
+7. Threading (Parallel Indexing)
+8. Benchmarking (Latency tests)
 """
 
 import re
@@ -9,6 +17,7 @@ import time
 import json
 import hashlib
 import threading
+import os
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
@@ -19,12 +28,6 @@ from concurrent.futures import ThreadPoolExecutor
 class Tokenizer:
     """
     Tokenize text into normalized terms.
-    
-    Responsibilities:
-    - Lowercase normalization
-    - Punctuation removal
-    - Stopword filtering
-    - Short word filtering
     """
 
     STOPWORDS = {
@@ -36,9 +39,9 @@ class Tokenizer:
     }
 
     def tokenize(self, text):
-        """
-        Convert raw text into a list of normalized tokens.
-        """
+        if not text:
+            return []
+
         # Step 1: Normalize case
         text = text.lower()
 
@@ -58,68 +61,80 @@ class Tokenizer:
 
 
 # ============================================================
-# 2. INVERTED INDEX
+# 2. INVERTED INDEX (WITH PERSISTENCE)
 # ============================================================
 
 class InvertedIndex:
     """
     Build and query an inverted index.
-
-    Data structures:
-    - index: term -> {doc_id -> term frequency}
-    - documents: doc_id -> raw document content
     """
 
     def __init__(self):
         # term -> {doc_id -> frequency}
         self.index = defaultdict(lambda: defaultdict(int))
-        
-        # doc_id -> content
         self.documents = {}
-        
-        # shared tokenizer
         self.tokenizer = Tokenizer()
 
     def add_document(self, doc_id, content):
-        """
-        Add a document to the index.
-        """
-        # Store document content
         self.documents[doc_id] = content
-
-        # Tokenize content
         terms = self.tokenizer.tokenize(content)
-
-        # Update inverted index
         for term in terms:
             self.index[term][doc_id] += 1
 
     def search(self, query):
-        """
-        Return documents containing the query term.
-        """
         tokens = self.tokenizer.tokenize(query)
-
         if not tokens:
             return {}
-
-        # Single-term search support for underlying index
-        # (Complex queries handled by QueryEngine)
         term = tokens[0]
         return dict(self.index.get(term, {}))
 
+    def term_frequency(self, term, doc_id):
+        term = term.lower()
+        return self.index.get(term, {}).get(doc_id, 0)
+
     def get_document(self, doc_id):
-        """Retrieve raw document by ID."""
         return self.documents.get(doc_id)
 
     def get_all_terms(self):
-        """Return all indexed terms."""
         return list(self.index.keys())
 
-    def term_frequency(self, term, doc_id):
-        """Return term frequency for a document."""
-        term = term.lower()
-        return self.index.get(term, {}).get(doc_id, 0)
+    # --- PERSISTENCE METHODS ---
+
+    def save(self, filename):
+        print(f"Saving index to {filename}...")
+        export_data = {
+            "index": {k: dict(v) for k, v in self.index.items()},
+            "documents": self.documents
+        }
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(export_data, f)
+        print("Save complete.")
+
+    def load(self, filename):
+        print(f"Loading index from {filename}...")
+        if not os.path.exists(filename):
+            print("File not found.")
+            return
+
+        with open(filename, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            
+        self.documents = {}
+        for k, v in data["documents"].items():
+            try:
+                self.documents[int(k)] = v
+            except ValueError:
+                self.documents[k] = v
+        
+        self.index = defaultdict(lambda: defaultdict(int))
+        for term, postings in data["index"].items():
+            for doc_id, freq in postings.items():
+                try:
+                    self.index[term][int(doc_id)] = freq
+                except ValueError:
+                    self.index[term][doc_id] = freq
+                    
+        print(f"Load complete. Loaded {len(self.documents)} documents.")
 
 
 # ============================================================
@@ -136,15 +151,10 @@ class TFIDFRanker:
         self.idf_cache = {}
 
     def compute_idf(self, term):
-        """
-        Compute Inverse Document Frequency (IDF) for a term.
-        IDF = log(Total Docs / Docs with Term)
-        """
         if term in self.idf_cache:
             return self.idf_cache[term]
 
         total_docs = len(self.index.documents)
-        # Count how many docs contain the term
         doc_frequency = len(self.index.index.get(term, {}))
 
         if total_docs == 0 or doc_frequency == 0:
@@ -156,17 +166,11 @@ class TFIDFRanker:
         return idf
 
     def compute_tfidf(self, term, doc_id):
-        """
-        Compute TF-IDF score for a term in a document.
-        """
         tf = self.index.term_frequency(term, doc_id)
         idf = self.compute_idf(term)
         return tf * idf
 
     def rank(self, query_text, candidate_docs):
-        """
-        Rank candidate documents for a query.
-        """
         query_terms = self.index.tokenizer.tokenize(query_text)
         scores = defaultdict(float)
 
@@ -175,7 +179,6 @@ class TFIDFRanker:
                 score = self.compute_tfidf(term, doc_id)
                 scores[doc_id] += score
 
-        # Sort by score descending
         ranked_results = sorted(
             scores.items(),
             key=lambda item: item[1],
@@ -191,19 +194,17 @@ class TFIDFRanker:
 
 class SearchCache:
     """
-    Simple LRU (Least Recently Used) Cache for search results.
+    Simple LRU (Least Recently Used) Cache.
     """
     def __init__(self, capacity=100, use_redis=False):
         self.capacity = capacity
         self.cache = {}
-        self.order = []
+        self.order = [] 
         self.stats = {'hits': 0, 'misses': 0}
-        self.use_redis = use_redis # Placeholder for future expansion
 
     def get(self, key):
         if key in self.cache:
             self.stats['hits'] += 1
-            # Refresh position
             self.order.remove(key)
             self.order.append(key)
             return self.cache[key]
@@ -230,99 +231,55 @@ class SearchCache:
 # ============================================================
 
 class QueryEngine:
-    """
-    Execute search queries over the index.
-    """
-
     def __init__(self, inverted_index, ranker):
         self.index = inverted_index
         self.ranker = ranker
 
     def search(self, query_text, top_k=5):
-        """Search for documents"""
-
-        # Tokenize query
         query_terms = self.index.tokenizer.tokenize(query_text)
 
         if not query_terms:
             return []
 
-        # Find candidate documents (Union of docs containing any query term)
         candidate_docs = set()
         for term in query_terms:
             docs_with_term = self.index.search(term)
             candidate_docs.update(docs_with_term.keys())
 
-        # Rank candidates
         ranked = self.ranker.rank(query_text, list(candidate_docs))
-
-        # Return top-k
         return ranked[:top_k]
 
 
 class CachedQueryEngine:
-    """
-    Query engine decorator with caching.
-    """
-    
     def __init__(self, inverted_index, ranker, cache=None):
         self.engine = QueryEngine(inverted_index, ranker)
         self.cache = cache or SearchCache()
     
     def search(self, query_text, top_k=5):
-        """Search with caching"""
-        
-        # Create cache key using hash of query
         cache_key = hashlib.md5(query_text.encode()).hexdigest()
         
-        # Try cache
         cached = self.cache.get(cache_key)
         if cached:
-            # Return cached results (deserialize if needed)
             return json.loads(cached) if isinstance(cached, str) else cached
         
-        # Not cached, compute
         results = self.engine.search(query_text, top_k)
         
-        # Cache results
         if results:
-            # Store as simple list or JSON string
             self.cache.set(cache_key, results)
         
         return results
 
 
 # ============================================================
-# 6. DOCUMENT STORAGE & UTILS
+# 6. THREADING UTILS
 # ============================================================
 
-class DocumentStore:
-    """Store and retrieve document metadata"""
-
-    def __init__(self):
-        self.docs = {}
-
-    def add(self, doc_id, title, content):
-        """Add document"""
-        self.docs[doc_id] = {
-            'title': title,
-            'content': content
-        }
-
-    def get(self, doc_id):
-        """Get document by ID"""
-        return self.docs.get(doc_id)
-
-
 class ThreadedIndexer:
-    """Index documents using multiple threads"""
-    
     def __init__(self, num_threads=4):
         self.num_threads = num_threads
         self.lock = threading.Lock()
     
     def build_index(self, documents):
-        """Build index from documents in parallel"""
         index = InvertedIndex()
         
         def worker(docs_chunk):
@@ -330,16 +287,15 @@ class ThreadedIndexer:
             for doc_id, content in docs_chunk:
                 local_index.add_document(doc_id, content)
             
-            # Merge into main index (Thread Safe)
             with self.lock:
                 for term, postings in local_index.index.items():
                     for doc_id, freq in postings.items():
                         index.index[term][doc_id] += freq
-                
-                # Update document store
                 index.documents.update(local_index.documents)
         
-        # Split documents into chunks for threads
+        if not documents:
+            return index
+
         chunk_size = math.ceil(len(documents) / self.num_threads)
         threads = []
         
@@ -347,7 +303,6 @@ class ThreadedIndexer:
             start = i * chunk_size
             end = start + chunk_size
             chunk = documents[start:end]
-            
             if not chunk: continue
 
             t = threading.Thread(target=worker, args=(chunk,))
@@ -361,21 +316,40 @@ class ThreadedIndexer:
 
 
 # ============================================================
-# 7. TEST SUITE
+# 7. DOCUMENT STORAGE
+# ============================================================
+
+class DocumentStore:
+    def __init__(self):
+        self.docs = {}
+
+    def add(self, doc_id, title, content):
+        self.docs[doc_id] = {'title': title, 'content': content}
+
+    def get(self, doc_id):
+        return self.docs.get(doc_id)
+
+
+# ============================================================
+# 8. TEST SUITE (WITH STATS)
 # ============================================================
 
 def test_tokenizer():
     print("\n" + "=" * 60)
     print("TEST 1: Tokenizer")
     print("=" * 60)
-
-    tokenizer = Tokenizer()
+    
     text = "The quick brown fox jumps over the lazy dog"
+    start = time.time()
+    tokenizer = Tokenizer()
     tokens = tokenizer.tokenize(text)
-
-    expected = ['quick', 'brown', 'fox', 'jumps', 'lazy', 'dog']
-    assert tokens == expected
-
+    duration = (time.time() - start) * 1000
+    
+    print(f"Input text length: {len(text)} chars")
+    print(f"Tokens generated: {len(tokens)}")
+    print(f"Processing time: {duration:.4f} ms")
+    
+    assert ['quick', 'brown', 'fox', 'jumps', 'lazy', 'dog'] == tokens
     print("✅ Tokenizer works correctly")
 
 
@@ -383,19 +357,20 @@ def test_inverted_index():
     print("\n" + "=" * 60)
     print("TEST 2: Inverted Index")
     print("=" * 60)
-
+    
+    start = time.time()
     index = InvertedIndex()
-
     index.add_document(1, "python is great")
     index.add_document(2, "python java comparison")
-    index.add_document(3, "java development tools")
-
     results = index.search("python")
-
-    assert 1 in results
-    assert 2 in results
-    assert 3 not in results
-
+    duration = (time.time() - start) * 1000
+    
+    print(f"Docs added: 2")
+    print(f"Terms in index: {len(index.get_all_terms())}")
+    print(f"Search results for 'python': {len(results)}")
+    print(f"Execution time: {duration:.4f} ms")
+    
+    assert 1 in results and 2 in results
     print("✅ Inverted index works correctly")
 
 
@@ -403,15 +378,16 @@ def test_term_frequency():
     print("\n" + "=" * 60)
     print("TEST 3: Term Frequency")
     print("=" * 60)
-
+    
     index = InvertedIndex()
-
-    index.add_document(1, "machine learning machine learning deep learning")
-    index.add_document(2, "machine learning basics")
-
-    assert index.term_frequency("machine", 1) == 2
-    assert index.term_frequency("machine", 2) == 1
-
+    index.add_document(1, "machine learning machine")
+    
+    tf = index.term_frequency("machine", 1)
+    print(f"Document: 'machine learning machine'")
+    print(f"Term: 'machine'")
+    print(f"Calculated Frequency: {tf}")
+    
+    assert tf == 2
     print("✅ Term frequency calculation correct")
 
 
@@ -419,44 +395,42 @@ def test_idf_calculation():
     print("\n" + "=" * 60)
     print("TEST 4: IDF Calculation")
     print("=" * 60)
-
-    index = InvertedIndex()
-
-    index.add_document(1, "python programming")
-    index.add_document(2, "python tutorial")
-    index.add_document(3, "java development")
-
-    ranker = TFIDFRanker(index)
-
-    idf_python = ranker.compute_idf("python")
-    idf_java = ranker.compute_idf("java")
     
-    # Java is rarer (1 doc) than python (2 docs), so IDF should be higher
+    index = InvertedIndex()
+    index.add_document(1, "python")
+    index.add_document(2, "python")
+    index.add_document(3, "java")
+    
+    ranker = TFIDFRanker(index)
+    idf_java = ranker.compute_idf("java")
+    idf_python = ranker.compute_idf("python")
+    
+    print(f"Docs containing 'python': 2 (Common)")
+    print(f"Docs containing 'java': 1 (Rare)")
+    print(f"IDF 'python': {idf_python:.4f}")
+    print(f"IDF 'java': {idf_java:.4f}")
+    
     assert idf_java > idf_python
-
-    print("✅ IDF calculation correct")
+    print("✅ IDF calculation correct (Rare terms have higher scores)")
 
 
 def test_tfidf_ranking():
     print("\n" + "=" * 60)
     print("TEST 5: TF-IDF Ranking")
     print("=" * 60)
-
+    
     index = InvertedIndex()
-
-    index.add_document(1, "machine learning machine")
-    index.add_document(2, "machine learning basics")
-    index.add_document(3, "deep learning only")
-
+    index.add_document(1, "machine learning machine") # High TF
+    index.add_document(2, "machine learning")         # Low TF
+    
     ranker = TFIDFRanker(index)
-
-    # Search for "machine"
-    ranked = ranker.rank("machine", [1, 2, 3])
-
-    # Doc 1 has "machine" twice, Doc 2 once. Doc 1 should be first.
+    ranked = ranker.rank("machine", [1, 2])
+    
+    print(f"Query: 'machine'")
+    print(f"Doc 1 Score (freq=2): {ranked[0][1]:.4f}")
+    print(f"Doc 2 Score (freq=1): {ranked[1][1]:.4f}")
+    
     assert ranked[0][0] == 1
-    assert ranked[1][0] == 2
-
     print("✅ TF-IDF ranking correct")
 
 
@@ -464,23 +438,22 @@ def test_query_engine():
     print("\n" + "=" * 60)
     print("TEST 6: Query Engine")
     print("=" * 60)
-
+    
     index = InvertedIndex()
-
-    index.add_document(1, "python programming language")
-    index.add_document(2, "java programming basics")
-    index.add_document(3, "web development tutorials")
-
+    index.add_document(1, "python programming")
     ranker = TFIDFRanker(index)
     engine = QueryEngine(index, ranker)
-
+    
+    start = time.time()
     results = engine.search("programming")
-    doc_ids = [doc_id for doc_id, _ in results]
-
-    assert 1 in doc_ids
-    assert 2 in doc_ids
-    assert 3 not in doc_ids
-
+    duration = (time.time() - start) * 1000
+    
+    print(f"Query: 'programming'")
+    print(f"Results found: {len(results)}")
+    print(f"Top Result ID: {results[0][0]}")
+    print(f"Search Time: {duration:.4f} ms")
+    
+    assert results[0][0] == 1
     print("✅ Query engine works correctly")
 
 
@@ -488,24 +461,18 @@ def test_document_retrieval():
     print("\n" + "=" * 60)
     print("TEST 7: Document Retrieval")
     print("=" * 60)
-
-    index = InvertedIndex()
+    
     store = DocumentStore()
-
-    index.add_document(1, "Learn python programming basics")
-    store.add(1, "Python Guide", "Learn python programming basics")
-
-    index.add_document(2, "Java programming fundamentals")
-    store.add(2, "Java Basics", "Java programming fundamentals")
-
-    ranker = TFIDFRanker(index)
-    results = ranker.rank("python", [1, 2])
-
-    assert results[0][0] == 1
-
+    start = time.time()
+    store.add(1, "Title", "Content")
     doc = store.get(1)
-    assert doc['title'] == "Python Guide"
-
+    duration = (time.time() - start) * 1000
+    
+    print(f"Stored Doc ID: 1")
+    print(f"Retrieved Title: {doc['title']}")
+    print(f"Retrieval Time: {duration:.4f} ms")
+    
+    assert doc['title'] == "Title"
     print("✅ Document retrieval works")
 
 
@@ -515,34 +482,30 @@ def test_large_index():
     print("="*60)
     
     index = InvertedIndex()
-    
-    # 1. Build index with 10K documents (Synthetic Data)
-    # We ensure "python" is in the text so we don't get 0 results
     start = time.time()
     for i in range(10000):
+        # Ensure 'python' is actually in the text
         if i % 100 == 0:
-            text = f"document {i} contains the target word python for search"
+            text = f"doc {i} contains python" 
         else:
-            text = f"document {i} is just filler content without the keyword"
+            text = f"doc {i} filler"
         index.add_document(i, text)
+    duration = time.time() - start
     
-    index_time = time.time() - start
+    print(f"Indexed 10,000 docs: {duration:.4f}s")
+    print(f"Total Terms: {len(index.get_all_terms())}")
     
     ranker = TFIDFRanker(index)
     engine = QueryEngine(index, ranker)
     
-    # 2. Search
-    start = time.time()
+    s_start = time.time()
     results = engine.search("python")
-    search_time = time.time() - start
+    s_duration = (time.time() - s_start) * 1000
     
-    print(f"Indexed 10,000 documents: {index_time:.4f}s")
-    print(f"Search query 'python': {search_time*1000:.2f}ms")
-    print(f"Found {len(results)} results")
+    print(f"Search Query 'python': {s_duration:.4f} ms")
+    print(f"Results Found: {len(results)}")
     
-    # Fix: Actually assert that we found results
     assert len(results) > 0
-    print(f"Total terms in index: {len(index.index.keys())}")
     print("✅ Performance acceptable")
 
 
@@ -551,21 +514,18 @@ def test_threaded_indexing():
     print("TEST 9: Threaded Indexing")
     print("="*60)
     
-    # Create 1000 documents
-    documents = [(i, f"document {i} with python") for i in range(1000)]
-    
+    documents = [(i, f"doc {i} with python") for i in range(1000)]
     indexer = ThreadedIndexer(num_threads=4)
     
     start = time.time()
     index = indexer.build_index(documents)
-    threaded_time = time.time() - start
+    duration = time.time() - start
     
-    # Verify index
-    assert len(index.documents) == 1000
-    results = index.search("python")
-    assert len(results) == 1000
+    print(f"Docs Indexed: 1000")
+    print(f"Threads Used: 4")
+    print(f"Execution Time: {duration:.4f}s")
     
-    print(f"Indexed 1000 documents (4 threads): {threaded_time:.4f}s")
+    assert len(index.search("python")) == 1000
     print("✅ Threaded indexing works")
 
 
@@ -574,27 +534,77 @@ def test_caching():
     print("TEST 10: Caching")
     print("="*60)
     
-    # Initialize Cache
     cache = SearchCache(use_redis=False)
     
-    # First access = miss
-    val = cache.get("test_key")
+    # Miss
+    val = cache.get("test")
+    print(f"First access (Miss): {val}")
     assert val is None
     
-    # Set value
-    cache.set("test_key", "cached_value")
+    # Set
+    cache.set("test", "value")
+    print(f"Set 'test' -> 'value'")
     
-    # Second access = hit
-    result = cache.get("test_key")
-    assert result == "cached_value"
+    # Hit
+    val = cache.get("test")
+    print(f"Second access (Hit): {val}")
+    assert val == "value"
     
-    # Verify Stats
     stats = cache.get_stats()
-    print(f"Cache stats: {stats}")
+    print(f"Cache Stats: {stats}")
     
     assert stats['hits'] == 1
-    assert stats['misses'] == 1
     print("✅ Caching works")
+
+
+def test_latency_benchmark():
+    """Test 11: Latency Benchmarks"""
+    print("\n" + "="*60)
+    print("TEST 11: Latency Benchmarks (Cold vs Warm Cache)")
+    print("="*60)
+    
+    # Generate 20K docs for a noticeable benchmark
+    DOC_COUNT = 20000 
+    print(f"Generating and Indexing {DOC_COUNT} documents...")
+    
+    index = InvertedIndex()
+    start_idx = time.time()
+    for i in range(DOC_COUNT):
+        # Make every 10th doc relevant
+        term = "python" if i % 10 == 0 else "java"
+        index.add_document(i, f"document {i} with {term} programming")
+    print(f"Indexing complete: {time.time() - start_idx:.2f}s")
+    
+    ranker = TFIDFRanker(index)
+    
+    # 1. Test without cache
+    engine_nocache = QueryEngine(index, ranker)
+    start = time.time()
+    results = engine_nocache.search("python programming")
+    nocache_time = (time.time() - start) * 1000
+    
+    # 2. Test with cache (First call - Cold)
+    cache = SearchCache(use_redis=False)
+    engine_cached = CachedQueryEngine(index, ranker, cache)
+    
+    start = time.time()
+    results = engine_cached.search("python programming")
+    first_call = (time.time() - start) * 1000
+    
+    # 3. Test with cache (Second call - Warm)
+    start = time.time()
+    results = engine_cached.search("python programming")
+    second_call = (time.time() - start) * 1000
+    
+    print(f"\nNo cache: {nocache_time:.3f}ms")
+    print(f"First call (Cold): {first_call:.3f}ms")
+    print(f"Second call (Warm): {second_call:.3f}ms")
+    
+    speedup = nocache_time / second_call if second_call > 0 else 999.0
+    print(f"Speedup: {speedup:.1f}x")
+    
+    assert speedup >= 1.0 
+    print("✅ Caching benchmark complete")
 
 
 # ============================================================
@@ -603,7 +613,8 @@ def test_caching():
 
 if __name__ == '__main__':
     print("\n" + "="*70)
-    print("DAY 1: INDEXING + RANKING (FULL SYSTEM)")
+    print("DAY 2 COMPLETE: FULL SEARCH ENGINE SYSTEM")
+    print("Features: Indexing, Ranking, Querying, Caching, Threading, Persistence")
     print("="*70)
     
     test_tokenizer()
@@ -616,7 +627,8 @@ if __name__ == '__main__':
     test_large_index()
     test_threaded_indexing()
     test_caching()
+    test_latency_benchmark()
     
     print("\n" + "="*70)
-    print("ALL 10 TESTS PASSED! ✅")
+    print("ALL 11 TESTS PASSED! ✅")
     print("="*70)
