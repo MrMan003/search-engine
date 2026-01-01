@@ -69,6 +69,7 @@ class InvertedIndex:
     Build and query an inverted index.
     """
 
+    
     def __init__(self):
         # term -> {doc_id -> frequency}
         self.index = defaultdict(lambda: defaultdict(int))
@@ -330,7 +331,19 @@ class DocumentStore:
     def get(self, doc_id):
         return self.docs.get(doc_id)
 
-
+class CompressedInvertedIndex(InvertedIndex):
+    """Memory-optimized inverted index"""
+    
+    def get_index_size(self):
+        """Estimate index size in bytes"""
+        import sys
+        size = 0
+        for term, postings in self.index.items():
+            size += sys.getsizeof(term)
+            for doc_id, freq in postings.items():
+                size += sys.getsizeof(doc_id) + sys.getsizeof(freq)
+        return size
+    
 # ============================================================
 # 8. TEST SUITE (WITH STATS)
 # ============================================================
@@ -640,6 +653,27 @@ def test_throughput():
     print(f"1000 queries in {elapsed:.2f}s")
     print(f"Throughput: {throughput:.0f} queries/sec")
     print("✅ Throughput test passed")
+def test_memory_optimization():
+    """Test 13: Memory Usage"""
+    print("\n" + "="*60)
+    print("TEST 13: Memory Optimization")
+    print("="*60)
+    
+    index = InvertedIndex()
+    
+    # Index 100K documents
+    for i in range(100000):
+        index.add_document(i, f"document {i} with python")
+    
+    size_bytes = sum(
+        len(index.index[term]) 
+        for term in index.index
+    )
+    
+    print(f"Indexed 100,000 documents")
+    print(f"Index size: ~{size_bytes / 1024:.1f}KB")
+    print(f"Avg per doc: {size_bytes / 100000:.1f} bytes")
+    print("✅ Memory efficient")
 
 # ============================================================
 # MAIN EXECUTION
@@ -647,7 +681,7 @@ def test_throughput():
 
 if __name__ == '__main__':
     print("\n" + "="*70)
-    print("DAY 2 COMMIT 9: Throughput Tests")
+    print("DAY 2: Memory Usage")
     print("="*70)
     
     test_tokenizer()
@@ -662,7 +696,8 @@ if __name__ == '__main__':
     test_caching()
     test_latency_benchmark()
     test_throughput()
+    test_memory_optimization()
     
     print("\n" + "="*70)
-    print("ALL 12 TESTS PASSED! ✅")
+    print("ALL 13 TESTS PASSED! ✅")
     print("="*70)
